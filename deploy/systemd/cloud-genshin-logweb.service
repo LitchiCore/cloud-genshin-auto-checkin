@@ -1,0 +1,22 @@
+[Unit]
+Description=Cloud Genshin Read-Only Log Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloud-genshin
+WorkingDirectory=/opt/cloud-genshin
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+ExecStart=/usr/bin/python3 /opt/cloud-genshin/web/log_web.py
+
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+[Unit]
+Description=Cloud Genshin Admin Web
+After=network-online.target cloud-genshin-logweb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloud-genshin
+WorkingDirectory=/opt/cloud-genshin
+
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+ExecStart=/usr/bin/python3 /opt/cloud-genshin/web/admin_web.py
+
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

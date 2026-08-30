@@ -1,0 +1,11 @@
+[Unit]
+Description=Cloud Genshin Public IPv6 Watch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cloud-genshin
+WorkingDirectory=/opt/cloud-genshin
+
+ExecStart=/usr/bin/python3 /opt/cloud-genshin/web/ipv6_watch.py

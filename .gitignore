@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+accounts/
+logs/
+backups/
+web/users.db*
+web/*status.json
+web/*job.log
+*.bak*
+.env
+.env.*
+!.env.example

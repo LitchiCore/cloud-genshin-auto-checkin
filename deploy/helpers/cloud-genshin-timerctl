@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ACTION="${1:-}"
+ACCOUNT="${2:-}"
+
+BASE="${CLOUD_GENSHIN_HOME:-/opt/cloud-genshin}"
+
+if [[ ! "$ACCOUNT" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "invalid account"
+    exit 2
+fi
+
+# 只允许操作真实存在的云原神账号
+if [ ! -d "$BASE/accounts/$ACCOUNT" ]; then
+    echo "account not found"
+    exit 3
+fi
+
+UNIT="cloud-genshin@${ACCOUNT}"
+
+case "$ACTION" in
+
+    enable)
+        /bin/systemctl enable --now "${UNIT}.timer"
+        echo "enabled"
+        ;;
+
+    disable)
+        /bin/systemctl disable --now "${UNIT}.timer"
+        echo "disabled"
+        ;;
+
+    run)
+        /bin/systemctl start --no-block "${UNIT}.service"
+        echo "queued"
+        ;;
+
+    status)
+        if /bin/systemctl is-enabled --quiet "${UNIT}.timer" 2>/dev/null; then
+            ENABLED="enabled"
+        else
+            ENABLED="disabled"
+        fi
+
+        if /bin/systemctl is-active --quiet "${UNIT}.timer" 2>/dev/null; then
+            ACTIVE="active"
+        else
+            ACTIVE="inactive"
+        fi
+
+        echo "$ENABLED $ACTIVE"
+        ;;
+
+    *)
+        echo "usage: cloud-genshin-timerctl {enable|disable|run|status} ACCOUNT"
+        exit 2
+        ;;
+esac

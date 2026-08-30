@@ -1,0 +1,14 @@
+[Unit]
+Description=Cloud Genshin Daily Visit (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=cloud-genshin
+WorkingDirectory=/opt/cloud-genshin
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/opt/cloud-genshin/.venv/bin/python /opt/cloud-genshin/run_monitored.py %i
+
+TimeoutStartSec=180

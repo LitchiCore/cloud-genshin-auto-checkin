@@ -1,0 +1,18 @@
+[Unit]
+Description=Cloud Genshin Public IPv6 Watch Timer
+
+[Timer]
+
+# 每次开机联网后先检查一次
+OnBootSec=2min
+
+# 每天早上再检查一次
+OnCalendar=*-*-* 06:00:00
+
+# 避免每天死卡同一分钟
+RandomizedDelaySec=30min
+
+Persistent=true
+
+[Install]
+WantedBy=timers.target

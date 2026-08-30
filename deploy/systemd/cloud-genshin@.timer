@@ -1,0 +1,11 @@
+[Unit]
+Description=Cloud Genshin Daily Timer (%i)
+
+[Timer]
+OnCalendar=*-*-* 04:10:00
+RandomizedDelaySec=40min
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
