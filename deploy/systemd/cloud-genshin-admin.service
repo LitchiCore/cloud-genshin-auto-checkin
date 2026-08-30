@@ -7,16 +7,15 @@ Wants=network-online.target
 Type=simple
 User=cloud-genshin
 WorkingDirectory=/opt/cloud-genshin
-
+EnvironmentFile=-/etc/cloud-genshin/cloud-genshin.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-
 ExecStart=/usr/bin/python3 /opt/cloud-genshin/web/admin_web.py
-
 Restart=on-failure
 RestartSec=3
 
-NoNewPrivileges=true
+# 管理后台通过受限 sudo helper 操作 timer，因此不能启用 NNP。
+NoNewPrivileges=false
 PrivateTmp=true
 
 [Install]

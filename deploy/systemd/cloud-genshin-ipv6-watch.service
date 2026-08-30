@@ -7,5 +7,5 @@ Wants=network-online.target
 Type=oneshot
 User=cloud-genshin
 WorkingDirectory=/opt/cloud-genshin
-
+EnvironmentFile=-/etc/cloud-genshin/cloud-genshin.env
 ExecStart=/usr/bin/python3 /opt/cloud-genshin/web/ipv6_watch.py

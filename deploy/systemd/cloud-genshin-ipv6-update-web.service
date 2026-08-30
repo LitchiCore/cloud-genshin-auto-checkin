@@ -5,22 +5,17 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-
 User=cloud-genshin
-
 WorkingDirectory=/opt/cloud-genshin
-
+EnvironmentFile=-/etc/cloud-genshin/cloud-genshin.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-
 ExecStart=/usr/bin/python3 /opt/cloud-genshin/web/ipv6_update_web.py
-
 Restart=on-failure
 RestartSec=3
 
-# 这个单一服务需要 sudo 固定 helper。
+# 仅允许通过 sudoers 调固定 root helper。
 NoNewPrivileges=false
-
 PrivateTmp=true
 
 [Install]

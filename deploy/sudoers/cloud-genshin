@@ -1,0 +1,4 @@
+# 仅允许 cloud-genshin 服务用户调用固定的受限 helper。
+# timerctl 自身会校验 action、账号名与账号目录。
+cloud-genshin ALL=(root) NOPASSWD: /usr/local/sbin/cloud-genshin-timerctl *
+cloud-genshin ALL=(root) NOPASSWD: /usr/local/sbin/cloud-genshin-ipv6-update

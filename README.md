@@ -1,6 +1,6 @@
 # 云原神每日自动领取与日志管理
 
-一个面向 Linux 服务器的云原神自动化工具：通过 Playwright 保存登录状态，每日访问云原神页面领取免费时长，并提供中文日志网站和管理员后台。正常领取时，免费时长通常增加 15 分钟，具体结果以页面实际显示为准。
+一个面向 Linux 服务器的云原神自动化工具：通过 Playwright 保存登录状态，每日访问云原神页面领取免费时长，并提供中文日志网站、邀请码注册、管理员后台和可选的 IPv6 直连维护。
 
 > 本项目是非官方工具，与米哈游无关联。网页结构或服务规则变化可能导致自动化失效。使用前请自行了解并遵守相关服务条款，妥善保护账号数据。
 
@@ -10,19 +10,25 @@
 - 每日自动访问并记录免费时长变化
 - 多账号隔离运行
 - 连续三次登录失效后自动暂停定时器
-- 中文只读日志页面、邀请注册和管理员后台
-- 可选的公网 IPv6 变化监控与更新入口
-- systemd 服务和定时器示例
+- 中文日志网站、邀请码注册和管理员后台
+- 管理后台可开启/停止/立即运行账号任务
+- 公网 IPv6 变化监控
+- 管理后台一键更新 IPv6 直连证书与 Nginx
+- systemd、sudoers、Nginx 与安装脚本示例
 
 ## 安全说明
 
-`accounts/` 中的浏览器 Profile 等同于登录凭据，`web/users.db` 含网站账号信息，绝对不要公开或分享。建议网站只监听回环地址，再通过带 TLS 和访问控制的反向代理发布。
+`accounts/` 中的浏览器 Profile 等同于登录凭据，`web/users.db` 含网站账号信息，绝对不要公开或分享。仓库默认通过 `.gitignore` 排除这些运行时数据。
+
+网站服务默认只监听回环地址，请通过 HTTPS 反向代理发布。IPv6 更新功能使用固定的 root helper；浏览器不会向 helper 提交 IP，helper 会自行检测本机公网 IPv6。
 
 ## 快速开始
 
-要求：Linux、Python 3.10+、systemd（如需定时运行）。
+### 最小运行
 
 ```bash
+git clone https://github.com/LitchiCore/cloud-genshin-auto-checkin.git
+cd cloud-genshin-auto-checkin
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/playwright install chromium
@@ -41,43 +47,147 @@ mkdir -p accounts logs
 .venv/bin/python daily_visit.py myaccount
 ```
 
-启动只读日志网站：
+启动日志网站：
 
 ```bash
 python3 web/log_web.py
 ```
 
-默认监听 `127.0.0.1:8001`。管理员后台默认监听 `127.0.0.1:8003`。
+默认端口：
 
-账号添加、日志查看、状态含义、管理员后台和常见故障请见 **[使用帮助](HELP.md)**。
+- 日志/登录：`127.0.0.1:8001`
+- 管理后台：`127.0.0.1:8003`
+- IPv6 更新接口：`127.0.0.1:8005`
 
-## systemd 部署
+详细使用方法见 **[HELP.md](HELP.md)**。
 
-示例单元文件位于 `deploy/systemd/`，默认安装目录为 `/opt/cloud-genshin`。复制项目后，请确认其中的用户、目录和 Python 路径符合你的环境，再安装：
+## 推荐的 systemd 部署
+
+仓库里的 systemd 单元默认使用：
+
+- 安装目录：`/opt/cloud-genshin`
+- 服务用户：`cloud-genshin`
+- 配置文件：`/etc/cloud-genshin/cloud-genshin.env`
+
+推荐：
 
 ```bash
-sudo cp deploy/systemd/cloud-genshin@.service /etc/systemd/system/
-sudo cp deploy/systemd/cloud-genshin@.timer /etc/systemd/system/
-sudo systemctl daemon-reload
+sudo git clone https://github.com/LitchiCore/cloud-genshin-auto-checkin.git /opt/cloud-genshin
+cd /opt/cloud-genshin
+sudo bash deploy/install.sh
+```
+
+安装脚本会：
+
+- 创建 `cloud-genshin` 系统用户
+- 建立 venv 并安装 Playwright Chromium
+- 安装 systemd 单元
+- 安装受限 timer / IPv6 root helper
+- 安装 sudoers 规则
+- 启动日志、管理员、IPv6 Watch 与更新后台
+
+然后编辑：
+
+```bash
+sudo nano /etc/cloud-genshin/cloud-genshin.env
+```
+
+至少确认：
+
+```text
+CLOUD_GENSHIN_PUBLIC_URL=https://你的地址
+CLOUD_GENSHIN_PROTECTED_ACCOUNT=admin
+CLOUD_GENSHIN_EXPECTED_IPV6=你的当前公网IPv6
+```
+
+## 创建第一个管理员
+
+全新安装时执行：
+
+```bash
+sudo -u cloud-genshin python3 /opt/cloud-genshin/web/user_admin.py create-admin admin
+```
+
+命令会交互式要求输入两次密码，密码使用与网站一致的 PBKDF2-SHA256 方案保存。
+
+查看用户：
+
+```bash
+sudo -u cloud-genshin python3 /opt/cloud-genshin/web/user_admin.py list
+```
+
+## 账号定时任务
+
+示例 timer 每天 04:10 执行，并增加最多 40 分钟随机延迟：
+
+```bash
 sudo systemctl enable --now cloud-genshin@myaccount.timer
+systemctl list-timers 'cloud-genshin@*'
 ```
 
-示例定时器每天 04:10 执行，并增加最多 40 分钟的随机延迟。可按需编辑 `OnCalendar`。
+## Nginx / Tailscale Funnel
 
-## 网站与配置
+`deploy/nginx/` 包含三个模板：
 
-可通过环境变量设置：
+- `cloud-genshin-funnel.conf`：监听 `127.0.0.1:8002`，适合 Tailscale Funnel 反代
+- `cloud-genshin-acme.conf`：监听公网 IPv6 TCP 80，仅服务 ACME HTTP-01
+- `cloud-genshin-direct.conf`：IPv6 `:8000` HTTPS 直连模板
 
-- `CLOUD_GENSHIN_PUBLIC_URL`：生成邀请链接时使用的公开地址
-- `CLOUD_GENSHIN_PROTECTED_ACCOUNT`：禁止从后台删除的账号
-- `CLOUD_GENSHIN_EXPECTED_IPV6`：可选 IPv6 监控基准
-
-网站首次运行会创建 SQLite 数据库。可使用：
+示例：
 
 ```bash
-python3 web/user_admin.py list
-python3 web/user_admin.py invite myaccount
+sudo apt install nginx
+sudo cp deploy/nginx/cloud-genshin-funnel.conf /etc/nginx/sites-available/cloud-genshin-funnel
+sudo cp deploy/nginx/cloud-genshin-acme.conf /etc/nginx/sites-available/cloud-genshin-acme
+sudo cp deploy/nginx/cloud-genshin-direct.conf /etc/nginx/sites-available/cloud-genshin-direct
+sudo ln -s /etc/nginx/sites-available/cloud-genshin-funnel /etc/nginx/sites-enabled/cloud-genshin-funnel
+sudo ln -s /etc/nginx/sites-available/cloud-genshin-acme /etc/nginx/sites-enabled/cloud-genshin-acme
+sudo nginx -t && sudo systemctl reload nginx
 ```
+
+**不要手动启用 `cloud-genshin-direct` 模板。** 第一次成功运行 IPv6 updater 时，它会申请证书、写入真实证书路径并自行启用该站点。
+
+Tailscale Funnel 可指向：
+
+```text
+http://127.0.0.1:8002
+```
+
+## IPv6 一键更新
+
+依赖：
+
+- Nginx
+- Certbot（支持 Let's Encrypt IP short-lived profile）
+- 公网 IPv6 TCP 80 可访问
+- `/var/lib/letsencrypt/.well-known/acme-challenge/` 可由 Nginx 提供
+
+管理后台检测到公网 IPv6 变化后会显示红色状态框，并提供“一键更新 IPv6 直连”。后台异步调用：
+
+```text
+/usr/local/sbin/cloud-genshin-ipv6-update
+```
+
+helper 会自行：
+
+1. 检测当前公网 IPv6
+2. 用 Certbot webroot 申请新的 IPv6 IP 证书
+3. 把 Nginx 直连监听保持为 `[::]:8000 ssl`
+4. 更新证书路径并 reload Nginx
+5. 通过 `https://[::1]:8000/login` 做本地 HTTPS 自检
+6. 写入 `web/ipv6_expected.json` 作为新的 Watch 基准
+
+这样公网 IPv6 前缀变化不会因为 Nginx 绑定旧地址而拖垮 Funnel。
+
+## 防火墙
+
+IPv6 IP 证书 HTTP-01 验证需要 TCP 80。如果使用 UFW：
+
+```bash
+sudo ufw allow 80/tcp comment 'LetsEncrypt ACME'
+```
+
+`cloud-genshin-acme.conf` 对除 `/.well-known/acme-challenge/` 外的 HTTP 请求全部返回 404。
 
 ## 目录说明
 
@@ -86,7 +196,12 @@ python3 web/user_admin.py invite myaccount
 - `run_monitored.py`：健康状态与登录失效熔断
 - `web/log_web.py`：用户日志网站
 - `web/admin_web.py`：管理员后台
-- `deploy/`：systemd 与受限管理脚本示例
+- `web/ipv6_watch.py`：公网 IPv6 变化检测
+- `web/ipv6_update_web.py`：异步 IPv6 更新 Web 入口
+- `deploy/helpers/`：受限 root helper
+- `deploy/systemd/`：systemd 示例
+- `deploy/nginx/`：Nginx 模板
+- `deploy/sudoers/`：sudoers 模板
 
 ## 隐私与备份
 

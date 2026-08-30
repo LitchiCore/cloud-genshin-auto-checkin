@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Root helper for refreshing the direct IPv6 HTTPS endpoint.
+
+Designed to be invoked only through a narrow sudoers rule. It accepts no
+arguments, discovers the current public IPv6 itself, obtains a short-lived
+Let's Encrypt IP certificate via webroot, updates the Nginx direct-site cert
+paths, reloads Nginx, verifies local HTTPS, and persists the new IPv6 baseline.
+"""
+
+from pathlib import Path
+from datetime import datetime
+import ipaddress
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+BASE = Path(os.environ.get("CLOUD_GENSHIN_HOME", "/opt/cloud-genshin"))
+WATCH = BASE / "web" / "ipv6_watch.py"
+STATUS = BASE / "web" / "ipv6_update_status.json"
+EXPECTED_STATE = BASE / "web" / "ipv6_expected.json"
+NGINX_SITE = Path(os.environ.get("CLOUD_GENSHIN_NGINX_DIRECT_SITE", "/etc/nginx/sites-available/cloud-genshin-direct"))
+NGINX_ENABLED = Path(os.environ.get("CLOUD_GENSHIN_NGINX_DIRECT_ENABLED", "/etc/nginx/sites-enabled/cloud-genshin-direct"))
+WEBROOT = Path(os.environ.get("CLOUD_GENSHIN_ACME_WEBROOT", "/var/lib/letsencrypt"))
+CERTBOT = shutil.which("certbot") or "/snap/bin/certbot"
+
+
+def save_status(status, message, **extra):
+    data = {
+        "status": status,
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "message": message,
+        **extra,
+    }
+    STATUS.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STATUS.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(STATUS)
+
+
+def run(cmd, *, timeout=120, check=True):
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if check and p.returncode != 0:
+        raise RuntimeError(
+            "命令执行失败：\n" + " ".join(cmd) +
+            f"\n\nSTDOUT:\n{p.stdout}\n\nSTDERR:\n{p.stderr}"
+        )
+    return p
+
+
+def current_public_ipv6():
+    route = run(["ip", "-6", "route", "show", "default"], timeout=10, check=False)
+    m = re.search(r"\bdev\s+(\S+)", route.stdout)
+    if not m:
+        raise RuntimeError("未找到 IPv6 默认路由接口")
+    interface = m.group(1)
+    out = run(["ip", "-o", "-6", "addr", "show", "dev", interface, "scope", "global"], timeout=10)
+    candidates = []
+    for line in out.stdout.splitlines():
+        m = re.search(r"\binet6\s+([0-9a-fA-F:]+)/\d+", line)
+        if not m:
+            continue
+        ip = ipaddress.IPv6Address(m.group(1))
+        if not ip.is_global or " deprecated " in f" {line} ":
+            continue
+        candidates.append((" temporary " in f" {line} ", str(ip)))
+    if not candidates:
+        raise RuntimeError("默认接口上没有可用公网 IPv6")
+    candidates.sort(key=lambda x: x[0])
+    return interface, candidates[0][1]
+
+
+def cert_name_for(ip):
+    import hashlib
+    return "cloud-genshin-ipv6-" + hashlib.sha256(ip.encode()).hexdigest()[:12]
+
+
+def patch_nginx_cert(cert_dir):
+    if not NGINX_SITE.exists():
+        raise RuntimeError(f"Nginx 直连站点不存在：{NGINX_SITE}")
+    text = NGINX_SITE.read_text(encoding="utf-8")
+    text = re.sub(r"(?m)^\s*listen\s+\[[^]]+\]:8000\s+ssl;", "    listen [::]:8000 ssl;", text)
+    fullchain = cert_dir / "fullchain.pem"
+    privkey = cert_dir / "privkey.pem"
+    if re.search(r"(?m)^\s*ssl_certificate\s+", text):
+        text = re.sub(r"(?m)^\s*ssl_certificate\s+[^;]+;", f"    ssl_certificate {fullchain};", text)
+    else:
+        text = text.replace("server {", f"server {{\n    ssl_certificate {fullchain};", 1)
+    if re.search(r"(?m)^\s*ssl_certificate_key\s+", text):
+        text = re.sub(r"(?m)^\s*ssl_certificate_key\s+[^;]+;", f"    ssl_certificate_key {privkey};", text)
+    else:
+        text = text.replace("server {", f"server {{\n    ssl_certificate_key {privkey};", 1)
+    NGINX_SITE.write_text(text, encoding="utf-8")
+
+
+def persist_expected(ip):
+    tmp = EXPECTED_STATE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"expected_ipv6": ip}, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(EXPECTED_STATE)
+
+
+def main():
+    interface, ip = current_public_ipv6()
+    cert_name = cert_name_for(ip)
+    cert_dir = Path("/etc/letsencrypt/live") / cert_name
+    save_status("running", "正在申请 Let's Encrypt IPv6 证书", new_ipv6=ip, interface=interface, cert_name=cert_name)
+
+    WEBROOT.joinpath(".well-known/acme-challenge").mkdir(parents=True, exist_ok=True)
+    run([
+        CERTBOT, "certonly", "--webroot", "--webroot-path", str(WEBROOT),
+        "--preferred-profile", "shortlived", "--ip-address", ip,
+        "--cert-name", cert_name, "--agree-tos", "--non-interactive",
+    ], timeout=180)
+
+    backup = NGINX_SITE.read_text(encoding="utf-8")
+    enabled_created = False
+    try:
+        save_status("running", "正在更新 Nginx IPv6 :8000 直连", new_ipv6=ip, interface=interface, cert_name=cert_name)
+        patch_nginx_cert(cert_dir)
+        if not NGINX_ENABLED.exists():
+            NGINX_ENABLED.symlink_to(NGINX_SITE)
+            enabled_created = True
+        run(["nginx", "-t"], timeout=20)
+        run(["systemctl", "reload", "nginx"], timeout=30)
+
+        save_status("running", "正在验证 IPv6 :8000 HTTPS", new_ipv6=ip, interface=interface, cert_name=cert_name)
+        ok = False
+        last = ""
+        for _ in range(15):
+            p = run([
+                "curl", "-6", "-k", "--noproxy", "*", "--connect-timeout", "2", "--max-time", "4",
+                "--silent", "--show-error", "--output", "/dev/null", "--write-out", "%{http_code}",
+                "https://[::1]:8000/login",
+            ], timeout=6, check=False)
+            last = f"rc={p.returncode} http={p.stdout.strip()} stderr={p.stderr.strip()}"
+            if p.returncode == 0 and p.stdout.strip()[:1] in {"2", "3", "4"}:
+                ok = True
+                break
+            time.sleep(1)
+        if not ok:
+            raise RuntimeError("Nginx IPv6 :8000 本地 HTTPS 验证失败：" + last)
+
+        persist_expected(ip)
+        if WATCH.exists():
+            run([sys.executable, str(WATCH)], timeout=20, check=False)
+        direct_url = f"https://[{ip}]:8000/"
+        save_status("ok", "IPv6 直连更新完成", new_ipv6=ip, interface=interface, cert_name=cert_name, direct_url=direct_url)
+        print(direct_url)
+    except Exception:
+        NGINX_SITE.write_text(backup, encoding="utf-8")
+        if enabled_created:
+            try:
+                NGINX_ENABLED.unlink()
+            except FileNotFoundError:
+                pass
+        run(["nginx", "-t"], timeout=20, check=False)
+        run(["systemctl", "reload", "nginx"], timeout=30, check=False)
+        raise
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        save_status("error", str(e))
+        raise

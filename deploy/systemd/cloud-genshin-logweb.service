@@ -7,14 +7,12 @@ Wants=network-online.target
 Type=simple
 User=cloud-genshin
 WorkingDirectory=/opt/cloud-genshin
+EnvironmentFile=-/etc/cloud-genshin/cloud-genshin.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-
 ExecStart=/usr/bin/python3 /opt/cloud-genshin/web/log_web.py
-
 Restart=on-failure
 RestartSec=3
-
 NoNewPrivileges=true
 PrivateTmp=true
 

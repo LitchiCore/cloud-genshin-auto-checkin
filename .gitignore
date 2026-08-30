@@ -6,6 +6,7 @@ logs/
 backups/
 web/users.db*
 web/*status.json
+web/ipv6_expected.json
 web/*job.log
 *.bak*
 .env
