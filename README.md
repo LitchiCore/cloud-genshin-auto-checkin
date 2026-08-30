@@ -16,15 +16,13 @@
 
 ## 安全说明
 
-`accounts/` 中的浏览器 Profile 等同于登录凭据，`web/users.db` 含网站账号信息。它们已被 `.gitignore` 排除，绝对不要提交或分享。建议网站只监听回环地址，再通过带 TLS 和访问控制的反向代理发布。
+`accounts/` 中的浏览器 Profile 等同于登录凭据，`web/users.db` 含网站账号信息，绝对不要公开或分享。建议网站只监听回环地址，再通过带 TLS 和访问控制的反向代理发布。
 
 ## 快速开始
 
 要求：Linux、Python 3.10+、systemd（如需定时运行）。
 
 ```bash
-git clone https://github.com/LitchiCore/cloud-genshin-auto-checkin.git
-cd cloud-genshin-auto-checkin
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/playwright install chromium
@@ -50,6 +48,8 @@ python3 web/log_web.py
 ```
 
 默认监听 `127.0.0.1:8001`。管理员后台默认监听 `127.0.0.1:8003`。
+
+账号添加、日志查看、状态含义、管理员后台和常见故障请见 **[使用帮助](HELP.md)**。
 
 ## systemd 部署
 
@@ -90,7 +90,7 @@ python3 web/user_admin.py invite myaccount
 
 ## 隐私与备份
 
-备份时请单独加密保存 `accounts/` 与 `web/users.db`。公开提交前，可运行 `git status --ignored` 检查它们是否仍处于忽略状态。
+备份时请单独加密保存 `accounts/` 与 `web/users.db`，不要公开分享其中内容。
 
 ## 许可证
 
