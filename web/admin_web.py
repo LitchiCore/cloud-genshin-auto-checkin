@@ -208,20 +208,7 @@ def ipv6_status_banner():
             )
         )
     except Exception:
-        return """
-<div class="card"
-     style="border-color:#8a6d25">
-
-<strong class="warn">
-⚠ IPv6 状态尚未检查
-</strong>
-
-<p class="small">
-IPv6 Watch 暂时没有可用状态。
-</p>
-
-</div>
-"""
+        return ""
 
     status = data.get(
         "status",
@@ -318,7 +305,7 @@ IPv6 Watch 暂时没有可用状态。
 更新任务在后台运行，
 无需保持当前页面打开。
 <br>
-Tailscale Funnel 不受影响。
+Cloudflare Tunnel 主入口不受影响。
 </p>
 
 </div>
@@ -387,7 +374,7 @@ IPv6 高速直连：
 <br>
 检查时间：{esc(checked)}
 <br>
-Tailscale Funnel 同时保持可用。
+Cloudflare Tunnel 主入口同时保持可用。
 </p>
 
 </div>
@@ -464,7 +451,7 @@ Tailscale Funnel 同时保持可用。
 
 <p>
 <strong>
-Tailscale Funnel 不受影响。
+Cloudflare Tunnel 主入口不受影响。
 </strong>
 </p>
 
@@ -524,7 +511,7 @@ Tailscale Funnel 不受影响。
 <br>
 这可能只是临时断网或运营商暂时未下发公网 IPv6。
 <br>
-Tailscale Funnel 不受影响。
+Cloudflare Tunnel 主入口不受影响。
 </p>
 
 </div>

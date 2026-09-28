@@ -1,6 +1,6 @@
 # 云原神每日自动领取与日志管理
 
-一个面向 Linux 服务器的云原神自动化工具：通过 Playwright 保存登录状态，每日访问云原神页面领取免费时长，并提供中文日志网站、邀请码注册、管理员后台和可选的 IPv6 直连维护。
+一个面向 Linux 服务器的云原神自动化工具：通过 Playwright 保存登录状态，每日访问云原神页面领取免费时长，并提供中文日志网站、邀请码注册、管理员后台。推荐使用 Cloudflare Tunnel 发布网站；IPv6 直连维护可选。
 
 > 本项目是非官方工具，与米哈游无关联。网页结构或服务规则变化可能导致自动化失效。使用前请自行了解并遵守相关服务条款，妥善保护账号数据。
 
@@ -20,7 +20,7 @@
 
 `accounts/` 中的浏览器 Profile 等同于登录凭据，`web/users.db` 含网站账号信息，绝对不要公开或分享。仓库默认通过 `.gitignore` 排除这些运行时数据。
 
-网站服务默认只监听回环地址，请通过 HTTPS 反向代理发布。IPv6 更新功能使用固定的 root helper；浏览器不会向 helper 提交 IP，helper 会自行检测本机公网 IPv6。
+网站服务默认只监听回环地址。推荐由 Cloudflare Tunnel 将公开域名转发到本机 Nginx `127.0.0.1:8002`，公网 HTTPS 由 Cloudflare 提供，不需要开放入站端口。IPv6 更新功能使用固定的 root helper；浏览器不会向 helper 提交 IP，helper 会自行检测本机公网 IPv6。
 
 ## 快速开始
 
@@ -84,7 +84,7 @@ sudo bash deploy/install.sh
 - 安装 systemd 单元
 - 安装受限 timer / IPv6 root helper
 - 安装 sudoers 规则
-- 启动日志、管理员、IPv6 Watch 与更新后台
+- 启动日志、管理员与 IPv6 更新后台；IPv6 Watch 可按需开启
 
 然后编辑：
 
@@ -95,10 +95,11 @@ sudo nano /etc/cloud-genshin/cloud-genshin.env
 至少确认：
 
 ```text
-CLOUD_GENSHIN_PUBLIC_URL=https://你的地址
+CLOUD_GENSHIN_PUBLIC_URL=https://genshin.example.com
 CLOUD_GENSHIN_PROTECTED_ACCOUNT=admin
-CLOUD_GENSHIN_EXPECTED_IPV6=你的当前公网IPv6
 ```
+
+将 `genshin.example.com` 替换为你的实际公开域名。不使用 IPv6 监控时让 `CLOUD_GENSHIN_EXPECTED_IPV6` 留空即可。
 
 ## 创建第一个管理员
 
@@ -125,35 +126,56 @@ sudo systemctl enable --now cloud-genshin@myaccount.timer
 systemctl list-timers 'cloud-genshin@*'
 ```
 
-## Nginx / Tailscale Funnel
+## Nginx / Cloudflare Tunnel
 
 `deploy/nginx/` 包含三个模板：
 
-- `cloud-genshin-funnel.conf`：监听 `127.0.0.1:8002`，适合 Tailscale Funnel 反代
-- `cloud-genshin-acme.conf`：监听公网 IPv6 TCP 80，仅服务 ACME HTTP-01
-- `cloud-genshin-direct.conf`：IPv6 `:8000` HTTPS 直连模板
+- `cloud-genshin-origin.conf`：监听 `127.0.0.1:8002`，将请求转发给三个本机 Web 服务
+- `cloud-genshin-acme.conf`：可选；监听公网 IPv6 TCP 80，仅服务 ACME HTTP-01
+- `cloud-genshin-direct.conf`：可选；IPv6 `:8000` HTTPS 直连模板
 
 示例：
 
 ```bash
 sudo apt install nginx
-sudo cp deploy/nginx/cloud-genshin-funnel.conf /etc/nginx/sites-available/cloud-genshin-funnel
+sudo cp deploy/nginx/cloud-genshin-origin.conf /etc/nginx/sites-available/cloud-genshin-origin
+sudo ln -s /etc/nginx/sites-available/cloud-genshin-origin /etc/nginx/sites-enabled/cloud-genshin-origin
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+先确认本机入口可访问：
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8002/login
+```
+
+应返回 `200`。随后将域名接入 Cloudflare，在 **Networking → Tunnels** 创建 Cloudflared Tunnel，并在服务器上按 Cloudflare 控制台给出的 Debian 安装命令安装 `cloudflared`，再执行控制台生成的 `sudo cloudflared service install <TOKEN>`。Token 是凭据，不要提交到仓库或聊天。
+
+在 Tunnel 中添加 **Published application**：
+
+```text
+Hostname: genshin.example.com
+Service URL: http://127.0.0.1:8002
+```
+
+Cloudflare 会创建相应 DNS 记录。确认 Tunnel 状态为 Healthy 后，用浏览器访问 `https://genshin.example.com/login` 和 `https://genshin.example.com/admin/`。登录页应正常加载，未登录访问管理后台应跳转到登录页。Tunnel 只需要服务器向外建立连接，不依赖公网 IPv6；不要把源站设为公网 IPv6 或 Tailscale 地址。
+
+## 可选：IPv6 一键更新
+
+只有需要公网 IPv6 `:8000` 直连时才配置这一节。Cloudflare Tunnel 不需要证书更新链路。
+
+先在 `/etc/cloud-genshin/cloud-genshin.env` 中把 `CLOUD_GENSHIN_EXPECTED_IPV6` 设置为当前公网 IPv6，再启用 `sudo systemctl enable --now cloud-genshin-ipv6-watch.timer`。已有 `web/ipv6_expected.json` 时，Watch 会优先使用持久化的基准。
+
+先安装可选的 Nginx 模板：
+
+```bash
 sudo cp deploy/nginx/cloud-genshin-acme.conf /etc/nginx/sites-available/cloud-genshin-acme
 sudo cp deploy/nginx/cloud-genshin-direct.conf /etc/nginx/sites-available/cloud-genshin-direct
-sudo ln -s /etc/nginx/sites-available/cloud-genshin-funnel /etc/nginx/sites-enabled/cloud-genshin-funnel
 sudo ln -s /etc/nginx/sites-available/cloud-genshin-acme /etc/nginx/sites-enabled/cloud-genshin-acme
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
 **不要手动启用 `cloud-genshin-direct` 模板。** 第一次成功运行 IPv6 updater 时，它会申请证书、写入真实证书路径并自行启用该站点。
-
-Tailscale Funnel 可指向：
-
-```text
-http://127.0.0.1:8002
-```
-
-## IPv6 一键更新
 
 依赖：
 
@@ -177,7 +199,7 @@ helper 会自行：
 5. 通过 `https://[::1]:8000/login` 做本地 HTTPS 自检
 6. 写入 `web/ipv6_expected.json` 作为新的 Watch 基准
 
-这样公网 IPv6 前缀变化不会因为 Nginx 绑定旧地址而拖垮 Funnel。
+公网 IPv6 前缀变化不影响 Cloudflare Tunnel 主入口。
 
 ## 防火墙
 

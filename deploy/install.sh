@@ -40,11 +40,10 @@ cp "$BASE"/deploy/systemd/*.service /etc/systemd/system/
 cp "$BASE"/deploy/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now cloud-genshin-logweb.service cloud-genshin-admin.service cloud-genshin-ipv6-update-web.service
-systemctl enable --now cloud-genshin-ipv6-watch.timer
 
 echo
 echo "基础服务已安装。"
 echo "下一步："
 echo "  1) 编辑 $ENV_FILE"
 echo "  2) python3 $BASE/web/user_admin.py create-admin admin"
-echo "  3) 如需 Nginx/Tailscale/IPv6 直连，按 README 的反向代理章节安装 deploy/nginx 模板"
+echo "  3) 按 README 配置 Nginx 本机入口与 Cloudflare Tunnel；IPv6 直连按需启用"

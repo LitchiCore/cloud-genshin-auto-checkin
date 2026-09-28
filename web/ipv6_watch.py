@@ -11,7 +11,7 @@ import subprocess
 BASE = Path(__file__).resolve().parent.parent
 STATE = BASE / "web" / "ipv6_status.json"
 EXPECTED_STATE = BASE / "web" / "ipv6_expected.json"
-DEFAULT_EXPECTED = os.environ.get("CLOUD_GENSHIN_EXPECTED_IPV6", "2001:db8::1")
+DEFAULT_EXPECTED = os.environ.get("CLOUD_GENSHIN_EXPECTED_IPV6", "")
 
 
 def load_expected():
@@ -22,6 +22,8 @@ def load_expected():
             return str(ipaddress.IPv6Address(value))
     except Exception:
         pass
+    if not DEFAULT_EXPECTED:
+        raise SystemExit("请先配置 CLOUD_GENSHIN_EXPECTED_IPV6，再启动 IPv6 Watch")
     return str(ipaddress.IPv6Address(DEFAULT_EXPECTED))
 
 

@@ -493,7 +493,7 @@ async function poll() {
                 "✗ IPv6 直连更新失败";
 
             messageEl.textContent =
-                "Tailscale Funnel 不受影响。";
+                "Cloudflare Tunnel 主入口不受影响。";
 
 
             let msg =
@@ -762,7 +762,7 @@ class Handler(
             data = read_status()
 
             # 不让一个特别巨大的错误 JSON
-            # 每两秒反复通过 Funnel。
+            # 每两秒反复通过 Cloudflare Tunnel。
             message = str(
                 data.get(
                     "message",
