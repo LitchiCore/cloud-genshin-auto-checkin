@@ -16,8 +16,12 @@ def source_ip(peer, headers):
     address = mapped or address
     values = headers.get_all('X-Real-IP', [])
     if address.is_loopback and len(values) == 1:
+        value = values[0].strip()
+        # ipaddress accepts IPv6 zone identifiers; proxy public-source headers must not.
+        if len(value) > 45 or '%' in value:
+            return str(address)
         try:
-            forwarded = ipaddress.ip_address(values[0].strip())
+            forwarded = ipaddress.ip_address(value)
             return str(getattr(forwarded, 'ipv4_mapped', None) or forwarded)
         except ValueError:
             pass

@@ -93,6 +93,9 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(source_ip('127.0.0.1', h), '127.0.0.1')
         h = Message(); h['X-Real-IP'] = '::ffff:198.51.100.7'
         self.assertEqual(source_ip('::ffff:127.0.0.1', h), '198.51.100.7')
+        for value in ('fe80::1%eth0', 'fe80::1%' + 'x'*1000):
+            h = Message(); h['X-Real-IP'] = value
+            self.assertEqual(source_ip('127.0.0.1', h), '127.0.0.1')
 
 
 if __name__ == '__main__':
