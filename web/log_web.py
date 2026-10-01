@@ -4,6 +4,7 @@ from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 import hashlib, hmac, html, json, secrets, sqlite3, subprocess, time
+from login_guard import LoginGuard, source_ip
 
 BASE = Path(__file__).resolve().parent.parent
 LOG_DIR = BASE / 'logs'
@@ -13,10 +14,20 @@ HOST, PORT = '127.0.0.1', 8001
 SESSION_SECONDS = 30 * 24 * 3600
 PBKDF2_ITERATIONS = 600_000
 MIN_PASSWORD_LENGTH = 6
+LOGIN_GUARD = LoginGuard()
+DUMMY_SALT = secrets.token_bytes(32)
+DUMMY_HASH = hashlib.pbkdf2_hmac('sha256', secrets.token_bytes(32), DUMMY_SALT, PBKDF2_ITERATIONS)
 
 
 def esc(v):
     return html.escape(str(v), quote=True)
+
+
+def login_event(outcome, username, ip):
+    # Journal gets fixed fields only: never form bodies, URLs, passwords or tokens.
+    print(json.dumps({'event': 'login', 'outcome': outcome, 'source_ip': ip,
+                      'user_key': hashlib.sha256(username.encode()).hexdigest()[:16]},
+                     ensure_ascii=True), flush=True)
 
 
 def connect():
@@ -257,30 +268,50 @@ class Handler(BaseHTTPRequestHandler):
             return self.password_submit(user)
         self.send_error(404)
 
-    def login_page(self, error=None):
+    def login_page(self, error=None, status=200, headers=None):
         e = f'<p class="error">{esc(error)}</p>' if error else ''
         body = f'''<h1>云·原神日志</h1><p class="small">请登录</p>{e}
 <form method="post" action="/login"><label>用户名</label><input name="username" autocomplete="username" required>
 <label>密码</label><input name="password" type="password" autocomplete="current-password" required>
 <button type="submit">登录</button></form><p><a href="/register">使用邀请码注册 / 设置密码</a></p>'''
-        self.send_html(make_page('登录', body))
+        self.send_html(make_page('登录', body), status=status, headers=headers)
+
+    def login_cooldown(self, seconds):
+        return self.login_page('登录尝试过多，请稍后再试。', status=429,
+                               headers=[('Retry-After', str(seconds))])
 
     def login_submit(self):
         f = self.read_form()
         username = f.get('username', '').strip()
         password = f.get('password', '')
-        if not valid_username(username):
-            return self.login_page('用户名或密码错误')
-        db = connect()
-        row = db.execute('SELECT password_salt,password_hash,password_set FROM users WHERE username=?', (username,)).fetchone()
-        db.close()
-        if not row or not row[2]:
+        ip = source_ip(self.client_address[0], self.headers)
+        token, retry = LOGIN_GUARD.admit(username, ip)
+        if token is None:
+            return self.login_cooldown(retry)
+        success = False
+        try:
+            row = None
+            if valid_username(username):
+                db = connect()
+                try:
+                    row = db.execute('SELECT password_salt,password_hash,password_set FROM users WHERE username=?', (username,)).fetchone()
+                finally:
+                    db.close()
+            usable = bool(row and row[2] and row[0] and row[1])
+            salt, digest = (row[0], row[1]) if usable else (DUMMY_SALT, DUMMY_HASH)
+            matches = verify_password(password, salt, digest)
+            success = usable and matches
+        finally:
+            retry = LOGIN_GUARD.finish(token, success)
+        if not success:
+            login_event('cooldown' if retry else 'failure', username, ip)
+            if retry:
+                return self.login_cooldown(retry)
             time.sleep(.4)
             return self.login_page('用户名或密码错误')
-        if not verify_password(password, row[0], row[1]):
-            time.sleep(.5)
-            return self.login_page('用户名或密码错误')
-        self.redirect('/', [self.create_session(username)])
+        session = self.create_session(username)
+        login_event('success', username, ip)
+        self.redirect('/', [session])
 
     def register_page(self, error=None, invite=''):
         e = f'<p class="error">{esc(error)}</p>' if error else ''
