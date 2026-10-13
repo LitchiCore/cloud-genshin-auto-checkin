@@ -480,7 +480,8 @@ class Handler(BaseHTTPRequestHandler):
                 )
 
             actions += '</p>'
-            actions += f'<p><a class="button" href="/admin/relogin/{esc(account)}">{"重新登录云原神" if hs == "login_expired" else "扫码登录"}</a></p>'
+            if hs == 'login_expired':
+                actions += f'<p><a class="button" href="/admin/relogin/{esc(account)}">重新登录云原神</a></p>'
 
             cards.append(
                 f"""
