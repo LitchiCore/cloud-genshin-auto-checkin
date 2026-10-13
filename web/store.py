@@ -28,6 +28,9 @@ def init():
             created_at INTEGER NOT NULL, password_set INTEGER NOT NULL DEFAULT 0)''')
         db.execute('''CREATE TABLE IF NOT EXISTS sessions(
             token_hash TEXT PRIMARY KEY, username TEXT NOT NULL, expires INTEGER NOT NULL)''')
+        db.execute('''CREATE TABLE IF NOT EXISTS password_resets(
+            username TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL,
+            expires INTEGER NOT NULL, created_by TEXT NOT NULL)''')
 
 
 @contextmanager
@@ -111,4 +114,14 @@ def invite_user(code):
     with database() as db:
         row = db.execute('''SELECT username FROM users WHERE setup_token_hash=?
             AND setup_expires>? AND password_set=0''', (invite_digest(code), int(time.time()))).fetchone()
+    return row['username'] if row else None
+
+
+def reset_user(token):
+    if not isinstance(token,str) or not 32 <= len(token) <= 128:
+        return None
+    with database() as db:
+        row = db.execute('''SELECT u.username FROM password_resets p JOIN users u
+            ON u.username=p.username WHERE p.token_hash=? AND p.expires>?''',
+            (hashlib.sha256(token.encode()).hexdigest(),int(time.time()))).fetchone()
     return row['username'] if row else None

@@ -116,6 +116,28 @@ class AppTests(unittest.TestCase):
         self.assertIsNone(self.request('/api/session','alice')[2]['user'])
         self.assertEqual(self.request('/api/login',data={'username':'alice','password':new})[0],200)
 
+    def test_admin_password_reset_is_single_use_and_revokes_user_sessions(self):
+        self.assertEqual(self.request('/admin/api/users/bob/reset-password','alice',{})[0],403)
+        self.assertEqual(self.request('/admin/api/users/bob/reset-password','lihe',{},csrf=False)[0],403)
+        first=self.request('/admin/api/users/bob/reset-password','lihe',{})[2]['token']
+        second=self.request('/admin/api/users/bob/reset-password','lihe',{})[2]['token']
+        self.assertEqual(self.request('/api/password-reset/resolve',data={'token':first})[0],400)
+        self.assertEqual(self.request('/api/password-reset/resolve',data={'token':second})[2]['username'],'bob')
+        self.assertEqual(self.request('/api/session','bob')[2]['user']['username'],'bob')
+        new='new-password-456'
+        self.assertEqual(self.request('/api/password-reset',data={'token':second,'password':new,'confirm':new})[0],200)
+        self.assertIsNone(self.request('/api/session','bob')[2]['user'])
+        self.assertEqual(self.request('/api/password-reset',data={'token':second,'password':new,'confirm':new})[0],400)
+        self.assertEqual(self.request('/api/login',data={'username':'bob','password':self.password})[0],400)
+        self.assertEqual(self.request('/api/login',data={'username':'bob','password':new})[0],200)
+        self.assertEqual(self.request('/api/session','lihe')[2]['user']['username'],'lihe')
+
+    def test_expired_password_reset_cannot_set_password(self):
+        token=self.request('/admin/api/users/alice/reset-password','lihe',{})[2]['token']
+        with store.database() as db:db.execute('UPDATE password_resets SET expires=0 WHERE username="alice"')
+        self.assertEqual(self.request('/api/password-reset',data={'token':token,'password':'password-123','confirm':'password-123'})[0],400)
+        self.assertEqual(self.request('/api/session','alice')[2]['user']['username'],'alice')
+
     def test_protected_deletion_and_unbound_task_cannot_run(self):
         self.assertEqual(self.request('/admin/api/users/lihe/delete','lihe',{'confirm':'lihe'})[0],409)
         self.assertEqual(self.request('/admin/api/accounts/alice/task','alice',{'action':'run'})[0],409)

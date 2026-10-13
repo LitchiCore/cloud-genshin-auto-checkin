@@ -62,6 +62,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send(b'', status, headers=[('Location', target)])
 
     def body(self):
+        if hasattr(self, '_json_body'):
+            return self._json_body
         try:
             length = int(self.headers.get('Content-Length', '0'))
         except ValueError:
@@ -76,6 +78,7 @@ class Handler(BaseHTTPRequestHandler):
             raise services.Problem('请求格式不正确。') from None
         if not isinstance(result, dict):
             raise services.Problem('请求格式不正确。')
+        self._json_body = result
         return result
 
     def require_user(self):
@@ -106,6 +109,8 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith('/admin/api/'):
                 path = path[len('/admin'):]
             if path.startswith('/api/'):
+                if method == 'POST':
+                    self.body()  # Consume the request before redirects or auth errors.
                 return self.api(method, path)
             if method != 'GET':
                 raise services.Problem('操作入口已更新，请刷新页面。', 405)
@@ -129,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
             if path in {'/password','/logout'}:
                 return self.redirect('/profile')
             # IPv6 certificate maintenance verifies this legacy URL returns HTTP 200.
-            if path in {'/','/login','/signin','/register','/profile','/manage','/network'} or re.fullmatch(r'/accounts/[A-Za-z0-9_-]{1,64}(?:/login)?', path):
+            if path in {'/','/login','/signin','/register','/reset','/profile','/manage','/network'} or re.fullmatch(r'/accounts/[A-Za-z0-9_-]{1,64}(?:/login)?', path):
                 return self.send(SHELL, content_type='text/html; charset=utf-8')
             raise services.Problem('页面不存在。', 404)
         except services.Problem as error:
@@ -157,6 +162,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send({'username':username})
         if method == 'POST' and path == '/api/register':
             return self.register(self.body())
+        if method == 'POST' and path == '/api/password-reset/resolve':
+            username=store.reset_user(self.body().get('token'))
+            if not username: raise services.Problem('重置链接已失效或已使用，请联系管理员重新生成。')
+            return self.send({'username':username})
+        if method == 'POST' and path == '/api/password-reset':
+            return self.complete_reset(self.body())
         user = self.require_user()
         if method == 'POST':
             self.csrf()
@@ -187,12 +198,13 @@ class Handler(BaseHTTPRequestHandler):
             self.require_admin(user)
             if method == 'GET': return self.send({'users':services.users(),'public_url':services.config()['public_url']})
             if method == 'POST': return self.send(services.create_user(self.body().get('username')),201)
-        match = re.fullmatch(r'/api/users/([A-Za-z0-9_-]{1,64})/(invite|delete)', path)
+        match = re.fullmatch(r'/api/users/([A-Za-z0-9_-]{1,64})/(invite|delete|reset-password)', path)
         if method == 'POST' and match:
             self.require_admin(user)
             username, action = match.groups(); services.authorize(user, username)
             data = self.body()
             if action == 'invite': return self.send(services.invite(username))
+            if action == 'reset-password': return self.send(services.password_reset(username,user['username']))
             if data.get('confirm') != username:
                 raise services.Problem('请输入完整账号名确认删除。')
             return self.send(services.delete_user(username,user['username']))
@@ -231,6 +243,7 @@ class Handler(BaseHTTPRequestHandler):
         password = self.valid_password(data)
         code = data.get('invite','')
         if not isinstance(code,str): raise services.Problem('邀请链接无效。')
+        if not store.invite_user(code): raise services.Problem('邀请链接已失效或已使用。')
         salt, digest = store.password_hash(password)
         with store.database() as db:
             invited = db.execute('SELECT username FROM users WHERE setup_token_hash=?', (store.invite_digest(code),)).fetchone()
@@ -259,6 +272,25 @@ class Handler(BaseHTTPRequestHandler):
             salt,digest = store.password_hash(password)
             db.execute('UPDATE users SET password_salt=?,password_hash=? WHERE username=?',(salt,digest,user['username']))
             db.execute('DELETE FROM sessions WHERE username=?',(user['username'],))
+            db.execute('DELETE FROM password_resets WHERE username=?',(user['username'],))
+        return self.send({'ok':True},headers=[('Set-Cookie',store.end_session(self.headers))])
+
+    def complete_reset(self,data):
+        password=self.valid_password(data)
+        token=data.get('token')
+        if not isinstance(token,str) or not 32 <= len(token) <= 128:
+            raise services.Problem('重置链接无效。')
+        if not store.reset_user(token):
+            raise services.Problem('重置链接已失效或已使用，请联系管理员重新生成。')
+        salt,digest=store.password_hash(password)
+        with store.database() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('''SELECT username FROM password_resets WHERE token_hash=? AND expires>?''',
+                (hashlib.sha256(token.encode()).hexdigest(),int(time.time()))).fetchone()
+            if not row:raise services.Problem('重置链接已失效或已使用，请联系管理员重新生成。')
+            db.execute('UPDATE users SET password_salt=?,password_hash=? WHERE username=?',(salt,digest,row['username']))
+            db.execute('DELETE FROM sessions WHERE username=?',(row['username'],))
+            db.execute('DELETE FROM password_resets WHERE username=?',(row['username'],))
         return self.send({'ok':True},headers=[('Set-Cookie',store.end_session(self.headers))])
 
     def image(self, username, action):

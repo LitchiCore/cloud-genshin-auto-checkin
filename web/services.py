@@ -3,6 +3,7 @@ from datetime import datetime
 from contextlib import contextmanager
 from pathlib import Path
 import json
+import hashlib
 import os
 import re
 import secrets
@@ -243,6 +244,20 @@ def existing_invite(username, row):
     return None
 
 
+def password_reset(username, administrator):
+    token = secrets.token_urlsafe(32)
+    expires = int(time.time()) + 3600
+    with store.database() as db:
+        row = db.execute('SELECT password_set FROM users WHERE username=?',(username,)).fetchone()
+        if not row or not row['password_set']:
+            raise Problem('该用户尚未注册，请发送邀请链接。',409)
+        db.execute('''INSERT INTO password_resets(username,token_hash,expires,created_by) VALUES(?,?,?,?)
+            ON CONFLICT(username) DO UPDATE SET token_hash=excluded.token_hash,
+            expires=excluded.expires,created_by=excluded.created_by''',
+            (username,hashlib.sha256(token.encode()).hexdigest(),expires,administrator))
+    return {'username':username,'token':token,'expires':expires}
+
+
 def users():
     with store.database() as db:
         rows = db.execute('SELECT username,role,password_set,setup_token_hash,created_at FROM users ORDER BY username').fetchall()
@@ -305,6 +320,7 @@ def delete_user(username, current_username):
             if log.exists():
                 shutil.move(str(log), str(archive / log.name))
             db.execute('DELETE FROM sessions WHERE username=?', (username,))
+            db.execute('DELETE FROM password_resets WHERE username=?', (username,))
             db.execute('DELETE FROM users WHERE username=?', (username,))
     return {'deleted': True}
 

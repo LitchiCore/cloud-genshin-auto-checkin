@@ -22,7 +22,7 @@ export async function navigate(path,replace=false) {
 
 async function render() {
   const id=++revision;cleanup();cleanup=()=>{};
-  const path=location.pathname,publicPage=['/signin','/register'].includes(path);
+  const path=location.pathname,publicPage=['/signin','/register','/reset'].includes(path);
   if(!session.user&&!publicPage){await navigate('/signin?next='+encodeURIComponent(path),true);return;}
   if(session.user&&path==='/signin'){await navigate('/',true);return;}
   if(!publicPage)app.innerHTML=frame('<div class="loading"><span class="spinner"></span>正在加载…</div>');
@@ -32,6 +32,7 @@ async function render() {
     if(path==='/')page=await pages.home(ctx);
     else if(path==='/signin')page=await pages.signin(ctx);
     else if(path==='/register')page=await pages.register(ctx);
+    else if(path==='/reset')page=await pages.resetPassword(ctx);
     else if(path==='/profile')page=await pages.profile(ctx);
     else if(path==='/manage')page=await pages.manage(ctx);
     else if(path==='/network')page=await pages.network(ctx);
