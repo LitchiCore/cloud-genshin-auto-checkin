@@ -25,17 +25,24 @@
 
 ## 快速开始
 
-### 网站操作
+### 新版网站
 
-首页查看各账号的登录状态和下一次签到时间；账号详情提供截图、运行记录和重新登录入口。云原神登录失效时，点击 **重新登录云原神 → 生成二维码 → 手机扫码确认**。页面会自动显示验证结果，二维码过期后可重新生成，下载由用户主动点击。需要先登录网站时，网站会记住原来的操作页面。
+- 普通用户只看到自己的账号。首次进入由「绑定云原神」引导扫码，绑定后在账号详情开启每日签到。
+- 首页展示上次检查状态、免费时长、签到安排；正常账号不显示扫码按钮，登录失效时显示重新登录。
+- 账号详情集中提供签到开关、立即检查、最近运行记录；完整日志和截图按需展开。
+- 管理员通过「账号管理 → 添加账号 → 发送邀请」添加用户，由用户设置网站密码并自行扫码绑定。
+- 网络维护与删除操作只对管理员开放。删除账号前会归档网站账号、Profile 和日志；当前账号与受保护账号不能删除。
+- 桌面使用侧栏，手机使用紧凑导航；普通用户界面没有账号管理和网络维护入口。
 
-账号本人只能重新登录自己的云原神账号，管理员可管理全部账号。`CLOUD_GENSHIN_PROTECTED_ACCOUNT` 设置的受保护账号仍可查看和重新登录，只禁止创建覆盖与删除。后台的 **账号设置** 集中显示登录健康、每日签到开关、立即检查结果和网站邀请码。
+前后端通过 JSON API 通信。`web/app.py` 处理路由、认证与权限，`web/store.py` 管理 SQLite，`web/services.py` 管理扫码和签到，`web/static/` 提供无构建依赖的前端。两个原有 systemd 入口和 Nginx 路由保持兼容：`8001` 提供页面、登录与查询，`/admin/api/` 通过 `8003` 执行账号操作和受限 helper。该路径同时服务账号本人和管理员，权限在服务端逐个校验。
 
-扫码成功必须读取到云原神账号的免费时长，关闭登录弹窗不会被当作成功。扫码与签到共享账号 Profile 锁；账号被占用时，本次签到跳过并保留原有健康状态。因连续登录失效而自动暂停的签到在扫码成功后尝试恢复，恢复失败会明确提示；用户手动暂停的签到保持暂停。
+原有 SQLite 账号、密码、Session 和邀请码无需清空。受保护账号可通过环境变量 `CLOUD_GENSHIN_PROTECTED_ACCOUNT` 设置，或在不提交到仓库的 `web/site_config.json` 中配置 `public_url` 和 `protected_accounts`。所有已登录写操作都校验绑定当前 Session 的 CSRF token，静态资源使用同源 CSP，不依赖外部脚本与字体。
+
+扫码成功必须读取到云原神免费时长。扫码与签到共享 Profile 锁；账号占用时，本次签到跳过并保留健康状态。因登录失效自动暂停的任务在登录成功后尝试恢复；手动暂停的任务保持暂停。
 
 ### 登录防护
 
-日志网站的 `/login` 使用用户名与来源 IP 两层限制：同一用户名在 15 分钟内连续失败 8 次后冷却 5 分钟；同一来源 IP 在 15 分钟内累计失败 30 次后冷却 10 分钟。正常登录会清零该用户名的失败计数，但不会清零来源 IP 的失败预算。冷却期间返回 HTTP 429 和 `Retry-After`，页面统一提示稍后重试。
+网站登录接口 `/api/login` 使用用户名与来源 IP 两层限制：同一用户名在 15 分钟内连续失败 8 次后冷却 5 分钟；同一来源 IP 在 15 分钟内累计失败 30 次后冷却 10 分钟。正常登录会清零该用户名的失败计数，但不会清零来源 IP 的失败预算。冷却期间返回 HTTP 429 和 `Retry-After`，页面统一提示稍后重试。
 
 服务同时最多执行 16 个密码验证。并发请求会先预占名额，避免一起越过失败阈值。内存状态最多保存 4096 个用户名/IP 条目，30 分钟不活动且没有进行中的验证时清理；容量满时拒绝新增条目，保留既有冷却。状态属于单个 Web 进程，重启服务会清空；多进程部署需要共享限流存储。
 
@@ -68,10 +75,12 @@ mkdir -p accounts logs
 .venv/bin/python daily_visit.py myaccount
 ```
 
-启动日志网站：
+启动网站与账号操作服务（分别在两个终端中运行，正式部署使用 systemd）：
 
 ```bash
 python3 web/log_web.py
+# 另一个终端
+python3 web/admin_web.py
 ```
 
 默认端口：
@@ -179,7 +188,7 @@ Hostname: genshin.example.com
 Service URL: http://127.0.0.1:8002
 ```
 
-Cloudflare 会创建相应 DNS 记录。确认 Tunnel 状态为 Healthy 后，用浏览器访问 `https://genshin.example.com/login` 和 `https://genshin.example.com/admin/`。登录页应正常加载，未登录访问管理后台应跳转到登录页。Tunnel 只需要服务器向外建立连接，不依赖公网 IPv6；不要把源站设为公网 IPv6 或 Tailscale 地址。
+Cloudflare 会创建相应 DNS 记录。确认 Tunnel 状态为 Healthy 后，用浏览器访问 `https://genshin.example.com/login` 和 `https://genshin.example.com/admin/`。登录页应正常加载；未登录打开账号管理时，前端会引导到网站登录。旧 `/login` 入口保留 HTTP 200，兼容 IPv6 证书维护自检。Tunnel 只需要服务器向外建立连接，不依赖公网 IPv6；不要把源站设为公网 IPv6 或 Tailscale 地址。
 
 ## 可选：IPv6 一键更新
 
@@ -239,8 +248,10 @@ sudo ufw allow 80/tcp comment 'LetsEncrypt ACME'
 - `daily_visit.py`：每日访问与时长检测
 - `qr_login.py`：二维码登录及 Profile 初始化
 - `run_monitored.py`：健康状态与登录失效熔断
-- `web/log_web.py`：用户日志网站
-- `web/admin_web.py`：管理员后台
+- `web/log_web.py` / `web/admin_web.py`：网站与账号操作服务入口
+- `web/app.py`：HTTP 路由、认证、权限与 JSON API
+- `web/store.py` / `web/services.py`：网站数据库与账号业务
+- `web/static/`：响应式前端页面与样式
 - `web/ipv6_watch.py`：公网 IPv6 变化检测
 - `web/ipv6_update_web.py`：异步 IPv6 更新 Web 入口
 - `deploy/helpers/`：受限 root helper

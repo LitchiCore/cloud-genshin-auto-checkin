@@ -1,196 +1,81 @@
-# 使用帮助
+# 网站使用帮助
 
-本文按当前源码说明账号登录、每日任务、日志网站和常见状态。
+## 普通用户
 
-## 1. 添加云原神账号
+### 接受邀请
 
-账号名只允许字母、数字、下划线和连字符。
+1. 打开管理员发来的邀请链接，确认账号名。
+2. 设置至少 8 位的网站密码。完成后会自动登录网站。
+3. 点击「绑定云原神」，用米游社或原神 App 扫码并在手机上确认。
+4. 登录验证成功后，返回账号详情，开启「每日签到」。
 
-```bash
+网站密码只用于访问本网站。云原神登录通过扫码建立，两者相互独立。
+
+### 日常使用
+
+首页展示你自己的云原神账号。登录状态和免费时长来自上次检查，并不表示实时在线。
+
+进入账号详情可以开启／暂停每日签到、立即检查并签到、查看最近运行、展开截图或完整日志。检查提交后结果会自动更新。暂停签到不会删除登录资料。
+
+登录失效时，首页显示「重新登录」。点击后会直接生成二维码。二维码过期后，在扫码页点击「重新生成二维码」。正常状态下，可在账号详情的「更多操作」里重新验证登录。
+
+个人设置可修改网站密码和退出网站。修改密码会退出该账号在所有设备上的网站登录，不改变云原神 Profile。
+
+## 管理员
+
+### 添加用户
+
+在「账号管理」中点击「添加账号」，填写字母、数字、下划线或短横线组成的账号名。创建后复制邀请链接发送给对方，由对方设置密码并扫码绑定。邀请 24 小时有效，仅可使用一次。已存在且尚未注册的账号可以重新生成邀请。
+
+管理员首页可查看所有账号的状态，在同一套账号详情中管理登录与签到。
+
+### 删除账号
+
+在账号管理中使用删除按钮，输入完整账号名确认。正在扫码或签到的账号需要等待任务结束后再删除。当前登录账号及受保护账号不能删除。
+
+删除时停止每日签到、注销网站 Session，并将原始账号资料归档到服务器 `backups/deleted-账号名-时间戳/`。归档可能包含登录凭据，不得公开。
+
+### 网络维护
+
+「网络设置」显示固定主域名、当前 IPv6 与最近检查时间。需要维护直连地址时可启动后台更新。公开域名通过 Cloudflare Tunnel 访问，不依赖 IPv6 直连地址。
+
+## 服务器与命令行
+
+网站入口为 `python3 web/log_web.py`（8001）和 `python3 web/admin_web.py`（8003），均只监听回环地址。使用仓库中的 Nginx 配置转发 `/admin/`，保证受限 helper 操作进入 8003 服务。
+
+初始化管理员：
+
+```sh
+python3 web/user_admin.py create-admin admin
+```
+
+命令行建立云原神登录：
+
+```sh
 .venv/bin/python qr_login.py myaccount
 ```
 
-程序会打开云原神页面并生成二维码：
+手动检查并记录健康状态：
 
-```text
-accounts/myaccount/screenshots/qr.png
+```sh
+.venv/bin/python run_monitored.py myaccount
 ```
 
-请在 3 分钟内扫码并在手机端确认。成功后，浏览器登录状态保存在 `accounts/myaccount/profile/`，同时记录当时的免费时长作为比较基线。
+定时任务：
 
-浏览器 Profile 等同于登录凭据，请勿公开、复制给他人或放在可被网站直接下载的位置。
-
-## 2. 手动运行一次
-
-```bash
-.venv/bin/python daily_visit.py myaccount
-```
-
-程序会访问云原神页面、等待每日奖励到账、尝试关闭奖励弹窗、读取“免费时长”，并保存最新完整页面截图：
-
-```text
-accounts/myaccount/screenshots/last-page.jpg
-```
-
-正常退出码为 `0`。其他退出码：
-
-- `1`：执行异常，例如网络、浏览器或 Playwright 错误
-- `2`：页面出现“开始游戏”，判定登录状态可能失效
-- `3`：页面可以打开，但无法识别当前页面状态
-
-退出码 `2` 或 `3` 时还会在账号截图目录保存诊断截图。
-
-## 3. 定时任务
-
-示例定时器是 `cloud-genshin@账号名.timer`。启用、停用和立即运行：
-
-```bash
+```sh
 sudo systemctl enable --now cloud-genshin@myaccount.timer
 sudo systemctl disable --now cloud-genshin@myaccount.timer
-sudo systemctl start cloud-genshin@myaccount.service
 ```
 
-查看下一次执行时间：
+`accounts/`、`logs/`、`web/users.db`、`web/site_config.json` 和 `backups/` 是私有运行数据。Profile 等同于云原神登录凭据。
 
-```bash
-systemctl list-timers 'cloud-genshin@*'
+扫码和签到互斥。连续三次登录失效会自动暂停签到；扫码成功后尝试恢复自动暂停的任务，手动暂停的任务仍保持暂停。
+
+## 开发验证
+
+```sh
+python3 -m unittest discover -s tests -v
 ```
 
-`run_monitored.py` 会维护 `accounts/账号名/health.json`。如果连续三次判定登录失效，它会通过受限的 `cloud-genshin-timerctl` 自动暂停该账号的定时器，避免持续失败。重新扫码成功后，后台流程会尝试恢复先前自动暂停的任务。
-
-## 4. 怎么看日志
-
-### 在网站中查看
-
-启动日志服务：
-
-```bash
-python3 web/log_web.py
-```
-
-服务监听 `127.0.0.1:8001`。登录后，首页会显示：
-
-- 账号最近一条日志
-- 登录健康状态
-- systemd 报告的下一次执行时间
-- “查看日志”入口
-
-日志详情页展示最近 500 条记录，按“最新到最旧”排序；如果存在 `last-page.jpg` 或 `last-page.png`，页面也会显示上一次完整页面截图。
-
-普通用户只能查看与自己同名的云原神账号；`admin` 角色可以查看全部账号，并能进入管理后台。
-
-登录 Cookie 带有 `Secure` 属性。对外使用时应通过 HTTPS 反向代理访问，不要直接把回环端口暴露到公网。
-
-### 在服务器中查看文本日志
-
-每个账号的摘要日志位于：
-
-```text
-logs/账号名.log
-```
-
-例如：
-
-```bash
-tail -n 50 logs/myaccount.log
-tail -f logs/myaccount.log
-```
-
-成功记录示例：
-
-```text
-2026-08-30 04:25:16 | myaccount | OK | 149→164 min | Δ+15 | 16s
-```
-
-字段依次表示执行时间、账号、结果、执行前后免费时长、变化量和耗时。首次成功只有基线，例如 `164 min | baseline`。
-
-常见结果：
-
-- `OK`：成功读取免费时长；`Δ+15` 表示比上次多 15 分钟
-- `OK` 且 `Δ0`：页面读取成功，但免费时长没有变化，可能当天已经领取
-- `LOGIN_EXPIRED`：登录状态失效，需要重新扫码
-- `FAIL(1)`：发生异常，日志末尾会记录异常类型
-- `FAIL(3)`：页面状态无法识别，优先查看诊断截图
-
-### 查看完整运行输出
-
-摘要日志不会保存 Playwright 的全部控制台输出。systemd 运行时可查看 journal：
-
-```bash
-journalctl -u cloud-genshin@myaccount.service -n 100 --no-pager
-journalctl -u cloud-genshin@myaccount.service -f
-```
-
-查看日志网站自身状态：
-
-```bash
-systemctl status cloud-genshin-logweb --no-pager
-journalctl -u cloud-genshin-logweb -n 100 --no-pager
-```
-
-## 5. 网站账号与邀请码
-
-网站数据保存在 `web/users.db`。管理员在 `/admin/` 中添加用户后，后台会启动二维码任务。扫码成功会生成一个有效期 24 小时的邀请码；用户打开 `/register`，输入邀请码并设置至少 6 位密码。
-
-已有用户记录也可以用命令重新生成邀请码：
-
-```bash
-python3 web/user_admin.py invite myaccount
-python3 web/user_admin.py list
-```
-
-邀请码只能用于尚未设置密码的用户。用户设置或修改密码后，该用户已有网站 Session 会被清除，需要重新登录。网站登录 Session 默认有效期为 30 天。
-
-## 6. 管理后台
-
-管理员入口是 `/admin/`，默认由 `web/admin_web.py` 监听 `127.0.0.1:8003`。实际部署时通常由反向代理把 `/admin/` 转发到该端口。
-
-管理员可以：
-
-- 添加用户并生成登录二维码
-- 查看二维码任务状态和邀请码
-- 开启、停止或立即运行账号定时任务
-- 查看登录健康状态
-- 删除普通用户及其网站账户、Session、日志、Profile、二维码和截图
-
-设置 `CLOUD_GENSHIN_PROTECTED_ACCOUNT` 后，对应账号不会出现在普通管理列表中，也不能通过后台创建或删除。
-
-删除用户是不可恢复操作。后台会先停止其 Timer；停止失败时数据不会继续删除。
-
-## 7. 常见问题
-
-### 页面提示登录失效
-
-重新执行二维码登录：
-
-```bash
-.venv/bin/python qr_login.py myaccount
-```
-
-扫码完成后，再手动运行一次 `daily_visit.py` 验证。
-
-### 日志显示 `Δ0`
-
-这不是运行失败。它表示成功读取到免费时长，但与上次记录相同，通常是当天已经领取，或奖励尚未更新。
-
-### 网站显示“暂无运行日志”
-
-先确认对应账号至少执行过一次 `daily_visit.py`，并检查 `logs/账号名.log` 是否存在以及服务用户是否有读取权限。
-
-### 网站显示“未启用”或“下一次执行未知”
-
-日志网站通过 `systemctl` 查询 `cloud-genshin@账号名.timer`。请确认定时器已经安装并启用，且网站服务所在系统可以调用 `systemctl`。
-
-### 没有最新页面截图
-
-截图只会在页面完成加载后保存。先查看 journal 中是否存在浏览器启动、超时或文件权限错误。
-
-### Playwright 找不到浏览器
-
-重新安装 Chromium：
-
-```bash
-.venv/bin/playwright install chromium
-```
-
-部分 Linux 发行版还需要安装浏览器系统依赖，可使用 Playwright 提供的 `install-deps chromium`，或按发行版安装对应依赖。
+测试使用独立临时数据库验证认证、邀请注册、普通用户权限、CSRF、签到状态与 Profile 锁。前端是原生 JavaScript 模块与 CSS，无需 npm 构建。
