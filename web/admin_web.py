@@ -222,6 +222,7 @@ input{box-sizing:border-box;width:100%;max-width:420px;padding:11px;margin:8px 0
 button,.button{display:inline-block;padding:10px 16px;border:0;border-radius:8px;background:#eee;color:#111;cursor:pointer;font-size:15px;text-decoration:none}.secondary{background:#333;color:#eee}.danger{background:#8b1e1e!important;color:#fff!important}
 .qr{display:block;width:220px;max-width:75vw;image-rendering:pixelated;margin:18px 0;border-radius:8px}pre,.code{white-space:pre-wrap;word-break:break-word;padding:12px;background:#080808;border-radius:8px;font-family:ui-monospace,monospace}
 .ok{color:#9be29b}.warn{color:#ffd27a}.err{color:#ff8c8c}.small{opacity:.65;font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap}.user{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.button.primary,button.primary{background:#a8e4cd;color:#10251e}summary{cursor:pointer}a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #a8e4cd;outline-offset:4px}@media(max-width:540px){.user{display:block}.user .row{margin-top:14px}.small{line-height:1.6}}
 </style>
 '''
 
@@ -571,7 +572,7 @@ Cloudflare Tunnel 主入口不受影响。
 
 def page(title, body):
     return f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)}</title>{STYLE}</head><body>
-<p><a href="/">← 日志首页</a> · <a href="/admin/">管理员首页</a> · <a href="/admin/#create">＋ 添加新用户</a></p>{ipv6_status_banner()}{body}</body></html>'''
+<p><a href="/">← 账号首页</a> · <a href="/admin/">账号管理</a> · <a href="/admin/#create">＋ 添加新用户</a></p>{body}<details class="card"><summary>网络入口与 IPv6 状态</summary>{ipv6_status_banner()}</details></body></html>'''
 
 
 class Handler(BaseHTTPRequestHandler):
