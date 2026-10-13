@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import time
+from profile_lock import acquire_profile_lock, ProfileBusyError
 
 BASE = Path(__file__).resolve().parent
 URL = "https://ys.mihoyo.com/cloud/"
@@ -193,6 +194,12 @@ print("时间：", now.strftime("%Y-%m-%d %H:%M:%S"))
 print("=" * 55)
 
 browser = None
+
+try:
+    profile_lock_handle = acquire_profile_lock(ACCOUNT_DIR)
+except ProfileBusyError:
+    print('该账号正在扫码登录或执行签到，本次跳过。')
+    raise SystemExit(75)
 
 try:
     with sync_playwright() as p:

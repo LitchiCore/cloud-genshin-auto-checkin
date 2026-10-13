@@ -2,8 +2,8 @@
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from http.cookies import SimpleCookie
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, unquote
-import hashlib, hmac, html, json, secrets, sqlite3, subprocess, time
+from urllib.parse import urlparse, parse_qs, unquote, urlencode
+import hashlib, hmac, html, json, re, secrets, sqlite3, subprocess, time
 from login_guard import LoginGuard, source_ip
 
 BASE = Path(__file__).resolve().parent.parent
@@ -53,6 +53,10 @@ def connect():
 
 def valid_username(v):
     return bool(v) and len(v) <= 64 and all(c.isalnum() or c in '_-' for c in v)
+
+
+def safe_next(value):
+    return value if re.fullmatch(r'/(?:admin/(?:relogin|job)/[A-Za-z0-9_-]{1,64}|log/[A-Za-z0-9_-]{1,64}|admin/|password)?', value or '') else '/'
 
 
 def hash_password(password, salt=None):
@@ -112,7 +116,8 @@ a{color:#8ab4f8;text-decoration:none}.card{background:#1b1b1b;border:1px solid #
 .log{white-space:pre-wrap;background:#080808;border:1px solid #333;border-radius:10px;padding:16px;line-height:1.7}
 .small{opacity:.65;font-size:13px}.top{display:flex;justify-content:space-between;gap:12px;margin-bottom:22px}
 form{max-width:420px}input{width:100%;box-sizing:border-box;padding:11px;margin:6px 0 14px;border-radius:8px;border:1px solid #444;background:#181818;color:#eee;font-size:16px}
-button,.button{display:inline-block;padding:10px 18px;border:0;border-radius:8px;cursor:pointer;font-size:15px}.error{color:#ff8c8c}.ok{color:#9be29b}.warn{color:#ffd27a}
+button,.button{display:inline-block;padding:10px 18px;border:0;border-radius:8px;cursor:pointer;font-size:15px;background:#a8e4cd;color:#10251e;text-decoration:none}.error{color:#ff8c8c}.ok{color:#9be29b}.warn{color:#ffd27a}
+.top{flex-wrap:wrap}.card:has(.account){padding:22px}.account{margin-bottom:12px}h1{letter-spacing:-.5px}.entry{color:#b8c2bd;font-size:13px}.small{line-height:1.6}a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid #a8e4cd;outline-offset:4px}
 .shot{display:block;max-width:100%;height:auto;border:1px solid #333;border-radius:10px;margin-top:12px}
 </style>
 '''
@@ -121,7 +126,7 @@ button,.button{display:inline-block;padding:10px 18px;border:0;border-radius:8px
 def make_page(title, body, user=None):
     top = ''
     if user:
-        admin = ' · <a href="/admin/">管理后台</a>' if user['role'] == 'admin' else ''
+        admin = ' · <a href="/admin/">账号管理</a>' if user['role'] == 'admin' else ''
         top = f'''<div class="top"><div class="small">登录：{esc(user['username'])} · {esc(user['role'])}{admin}</div>
 <div class="small"><a href="/password">修改密码</a> · <a href="/logout">退出</a></div></div>'''
     return f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{esc(title)}</title>{STYLE}</head><body>{top}{body}</body></html>'''
@@ -215,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
     def require_user(self):
         u = self.current_user()
         if not u:
-            self.redirect('/login')
+            self.redirect('/login?' + urlencode({'next':safe_next(urlparse(self.path).path)}))
         return u
 
     def authorized_account(self, user, account):
@@ -224,7 +229,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         p = urlparse(self.path)
         if p.path == '/login':
-            return self.redirect('/') if self.current_user() else self.login_page()
+            target=safe_next(parse_qs(p.query).get('next',['/'])[0])
+            return self.redirect(target) if self.current_user() else self.login_page(next_path=target)
         if p.path == '/register':
             invite = parse_qs(p.query).get('invite', [''])[0]
             return self.register_page(invite=invite)
@@ -268,26 +274,27 @@ class Handler(BaseHTTPRequestHandler):
             return self.password_submit(user)
         self.send_error(404)
 
-    def login_page(self, error=None, status=200, headers=None):
+    def login_page(self, error=None, status=200, headers=None, next_path='/'):
         e = f'<p class="error">{esc(error)}</p>' if error else ''
         body = f'''<h1>云·原神日志</h1><p class="small">请登录</p>{e}
-<form method="post" action="/login"><label>用户名</label><input name="username" autocomplete="username" required>
+<form method="post" action="/login"><input type="hidden" name="next" value="{esc(safe_next(next_path))}"><label>用户名</label><input name="username" autocomplete="username" required>
 <label>密码</label><input name="password" type="password" autocomplete="current-password" required>
 <button type="submit">登录</button></form><p><a href="/register">使用邀请码注册 / 设置密码</a></p>'''
         self.send_html(make_page('登录', body), status=status, headers=headers)
 
-    def login_cooldown(self, seconds):
+    def login_cooldown(self, seconds, next_path='/'):
         return self.login_page('登录尝试过多，请稍后再试。', status=429,
-                               headers=[('Retry-After', str(seconds))])
+                               headers=[('Retry-After', str(seconds))], next_path=next_path)
 
     def login_submit(self):
         f = self.read_form()
+        next_path = safe_next(f.get('next', '/'))
         username = f.get('username', '').strip()
         password = f.get('password', '')
         ip = source_ip(self.client_address[0], self.headers)
         token, retry = LOGIN_GUARD.admit(username, ip)
         if token is None:
-            return self.login_cooldown(retry)
+            return self.login_cooldown(retry, next_path)
         success = False
         try:
             row = None
@@ -306,12 +313,12 @@ class Handler(BaseHTTPRequestHandler):
         if not success:
             login_event('cooldown' if retry else 'failure', username, ip)
             if retry:
-                return self.login_cooldown(retry)
+                return self.login_cooldown(retry, next_path)
             time.sleep(.4)
-            return self.login_page('用户名或密码错误')
+            return self.login_page('用户名或密码错误', next_path=next_path)
         session = self.create_session(username)
         login_event('success', username, ip)
-        self.redirect('/', [session])
+        self.redirect(next_path, [session])
 
     def register_page(self, error=None, invite=''):
         e = f'<p class="error">{esc(error)}</p>' if error else ''
@@ -429,6 +436,7 @@ class Handler(BaseHTTPRequestHandler):
             ]
 
         cards = []
+        accounts = sorted(accounts, key=lambda name: (load_health(name).get('status') != 'login_expired', name))
 
         for account in accounts:
             path = LOG_DIR / f"{account}.log"
@@ -459,7 +467,7 @@ class Handler(BaseHTTPRequestHandler):
             actions = (
                 f'<p>'
                 f'<a href="/log/{esc(account)}">'
-                f'查看日志'
+                f'账号详情'
                 f'</a>'
             )
 
@@ -467,11 +475,12 @@ class Handler(BaseHTTPRequestHandler):
                 actions += (
                     f' · '
                     f'<a href="/admin/job/{esc(account)}">'
-                    f'管理用户'
+                    f'账号设置'
                     f'</a>'
                 )
 
             actions += '</p>'
+            actions += f'<p><a class="button" href="/admin/relogin/{esc(account)}">{"重新登录云原神" if hs == "login_expired" else "扫码登录"}</a></p>'
 
             cards.append(
                 f"""
@@ -503,7 +512,7 @@ class Handler(BaseHTTPRequestHandler):
         admin_actions = (
             """
 <p>
-<a href="/admin/">⚙ 管理后台</a>
+<a href="/admin/">⚙ 账号管理</a>
 &nbsp; · &nbsp;
 <a href="/admin/#create">＋ 添加新用户</a>
 </p>
@@ -516,7 +525,7 @@ class Handler(BaseHTTPRequestHandler):
             make_page(
                 "云·原神日志",
                 f"""
-<h1>云·原神运行日志</h1>
+<h1>云原神账号</h1><p class="small">查看登录状态与每日签到记录。登录失效时，请先重新扫码。</p>
 
 {admin_actions}
 
@@ -547,9 +556,9 @@ class Handler(BaseHTTPRequestHandler):
             m = int(shot.stat().st_mtime)
             size_kb = max(1, round(shot.stat().st_size / 1024))
             kind = 'JPEG' if shot.suffix.lower() == '.jpg' else 'PNG'
-            shot_html = f'''<div class="card"><strong>上一次完整页面截图</strong>
+            shot_html = f'''<details class="card"><summary>查看上一次运行截图</summary>
 <p class="small">{kind} · 约 {size_kb} KB · 点击图片查看原图</p>
-<a href="/screenshot/{esc(account)}?v={m}" target="_blank"><img class="shot" loading="eager" decoding="async" fetchpriority="high" src="/screenshot/{esc(account)}?v={m}" alt="上一次页面截图"></a></div>'''
+<a href="/screenshot/{esc(account)}?v={m}" target="_blank"><img class="shot" loading="lazy" decoding="async" src="/screenshot/{esc(account)}?v={m}" alt="上一次页面截图"></a></details>'''
 
         # 详情页按“最新 -> 最旧”排列。
         if path.exists():
@@ -568,8 +577,12 @@ class Handler(BaseHTTPRequestHandler):
         else:
             logs_html = "暂无运行日志"
 
-        body = f'''<p><a href="/">← 返回</a></p><h1>{esc(account)}</h1>
+        recovery = f'<a class="button" href="/admin/relogin/{esc(account)}">{"重新登录云原神" if hs == "login_expired" else "扫码登录"}</a>'
+        settings = f' · <a href="/admin/job/{esc(account)}">账号设置与签到任务</a>' if user['role'] == 'admin' else ''
+        hint = '<p class="error">云原神登录已失效。请重新扫码并在手机上确认，完成后会验证登录状态。</p>' if hs == 'login_expired' else ''
+        body = f'''<p><a href="/">← 账号首页</a>{settings}</p><h1>{esc(account)} · 账号详情</h1>
 <div class="card"><strong>{badge}</strong><br><br>下一次执行：<strong>{esc(next_run_time(account))}</strong></div>
+<div class="card">{hint}{recovery}</div>
 {shot_html}
 <p class="small">最近 500 条记录 · 最新在上</p><div class="log">{logs_html}</div>'''
         self.send_html(make_page(f'{account} - 云·原神日志', body, user))

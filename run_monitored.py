@@ -78,6 +78,10 @@ if proc.stderr:
 rc = proc.returncode
 old = read_health()
 
+if rc == 75:
+    print('账号正在使用中，保留当前健康状态。')
+    raise SystemExit(0)
+
 if rc == 0:
     write_health({
         "status": "ok",

@@ -105,6 +105,15 @@ class HttpTests(unittest.TestCase):
         self.assertNotIn('raw_identity', output.getvalue())
         self.assertNotIn('secret', output.getvalue())
 
+    def test_login_returns_to_account_action_and_rejects_external_redirects(self):
+        target = '/admin/relogin/lihe'
+        self.assertIn(('name="next" value="' + target + '"'), self.request('/login?next=' + target)[2])
+        status, headers, _ = self.request('/login', {'username':'test_admin','password':self.password,'next':target})
+        self.assertEqual(status,303)
+        self.assertEqual(headers['Location'],target)
+        for unsafe in ('//evil.example', 'https://evil.example', '/\\evil.example', '/admin/relogin/a\r\nX-Test: x'):
+            self.assertEqual(log_web.safe_next(unsafe),'/')
+
 
 if __name__ == '__main__':
     unittest.main()
