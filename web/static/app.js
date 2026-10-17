@@ -46,4 +46,8 @@ async function render() {
 document.addEventListener('click',evt=>{const link=evt.target.closest('a[data-nav]');if(!link||evt.button!==0||evt.ctrlKey||evt.metaKey||evt.shiftKey||evt.altKey)return;evt.preventDefault();navigate(link.getAttribute('href'));});
 window.addEventListener('popstate',render);
 window.addEventListener('session-expired',()=>{session.user=null;session.csrf=null;toast('网站登录已过期，请重新登录','error');navigate('/signin?next='+encodeURIComponent(location.pathname),true);});
-try {await refreshSession();await render();}catch(error){app.innerHTML=`<main class="error-page"><h1>暂时无法连接</h1><p>${e(error.message)}</p><a class="button primary" href="/">重新打开网站</a></main>`;}
+if(location.protocol==='http:'&&!['localhost','127.0.0.1','[::1]'].includes(location.hostname)) {
+  location.replace('https://'+location.host+location.pathname+location.search+location.hash);
+} else {
+  try {await refreshSession();await render();}catch(error){app.innerHTML=`<main class="error-page"><h1>暂时无法连接</h1><p>${e(error.message)}</p><a class="button primary" href="/">重新打开网站</a></main>`;}
+}

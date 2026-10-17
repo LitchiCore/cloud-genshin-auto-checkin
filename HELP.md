@@ -2,6 +2,10 @@
 
 ## 普通用户
 
+### 网站地址与登录
+
+公开网站使用 HTTPS。网站登录 Cookie 带有 `Secure` 属性，通过 HTTP 登录时浏览器不会保存会话。Cloudflare Tunnel 的 Nginx 源站模板根据访客的 `X-Forwarded-Proto` 将 HTTP 请求升级为 HTTPS，保留原有路径和查询参数；前端也会在公开 HTTP 地址上引导到 HTTPS。浏览器未保存登录状态时，登录页会显示明确提示。
+
 ### 接受邀请
 
 1. 打开管理员发来的邀请链接，确认账号名。
