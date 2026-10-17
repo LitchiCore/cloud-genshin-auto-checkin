@@ -47,6 +47,14 @@
 
 网站入口为 `python3 web/log_web.py`（8001）和 `python3 web/admin_web.py`（8003），均只监听回环地址。使用仓库中的 Nginx 配置转发 `/admin/`，保证受限 helper 操作进入 8003 服务。
 
+### 已有部署升级与共享证书
+
+已有服务器升级网站时，单独同步应用文件并保留已部署的 root helper。`deploy/install.sh` 会替换 `/usr/local/sbin/cloud-genshin-ipv6-update`；执行前需比较线上定制逻辑与仓库版本。
+
+多个 Nginx 站点可能共用同一张 IPv6 证书。带有旧证书清理功能的 helper 必须在删除前使用 `nginx -T` 检查所有生效配置中的 `ssl_certificate` 和 `ssl_certificate_key` 引用；任何站点仍引用该证书时保留，检查失败或超时时也保留。只检查云原神站点的配置不足以确认旧证书可以删除。
+
+仓库提供的通用 helper 不自动删除旧证书。线上定制 helper 的 `certificate_in_use()` 保护及其删除前调用必须在后续部署中保留。
+
 初始化管理员：
 
 ```sh
